@@ -1,7 +1,10 @@
 using MinimalApiDemo.Data;
 using MinimalApiDemo.Models;
 using MinimalApiDemo.DTOs;
+using MinimalApiDemo.Services;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,8 +12,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
 
 // База данных
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(connectionString));
+
+// Сервисы
+builder.Services.AddScoped<TokenService>();
+builder.Services.AddScoped<PasswordHasher>();
 
 // Сервисы
 builder.Services.AddEndpointsApiExplorer();
@@ -18,29 +26,48 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Миграции базы данных с повторными попытками
+// Миграции базы данных
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     
-    var retries = 10;
-    while (retries > 0)
+    try
     {
-        try
+        logger.LogInformation("Testing database connection...");
+        var canConnect = await db.Database.CanConnectAsync();
+        
+        if (canConnect)
         {
-            logger.LogInformation("Attempting to apply migrations...");
-            db.Database.Migrate();
+            logger.LogInformation("Database connected, applying migrations...");
+            await db.Database.MigrateAsync();
+            
+            // Создаем тестового пользователя если нет пользователей
+            if (!await db.AppUsers.AnyAsync())
+            {
+                var hasher = scope.ServiceProvider.GetRequiredService<PasswordHasher>();
+                var testUser = new AppUser 
+                { 
+                    Username = "admin", 
+                    Email = "admin@example.com",
+                    PasswordHash = hasher.HashPassword("admin123"),
+                    Role = "Admin"
+                };
+                db.AppUsers.Add(testUser);
+                await db.SaveChangesAsync();
+                logger.LogInformation("Test user created: admin/admin123");
+            }
+            
             logger.LogInformation("Migrations applied successfully");
-            break;
         }
-        catch (Exception ex)
+        else
         {
-            retries--;
-            logger.LogWarning(ex, "Migration failed, retries left: {Retries}", retries);
-            if (retries == 0) throw;
-            Thread.Sleep(5000);
+            logger.LogWarning("Cannot connect to database, skipping migrations");
         }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Database initialization failed");
     }
 }
 
@@ -54,73 +81,149 @@ app.UseSwaggerUI(c =>
 
 app.UseHttpsRedirection();
 
-// Endpoints
-app.MapGet("/", () => "Hello World! Minimal API with PostgreSQL is working!");
-
+// Public endpoints
+app.MapGet("/", () => "Hello World! Minimal API with JWT Auth is working!");
 
 app.MapGet("/hello/{name}", (string name) => $"Hello {name}!");
 
-// GET все пользователи
+// Auth endpoints
+app.MapPost("/api/auth/register", async (LoginUser user, AppDbContext context, PasswordHasher hasher) =>
+{
+    try
+    {
+        // Проверяем существует ли пользователь
+        if (await context.AppUsers.AnyAsync(u => u.Username == user.Username))
+            return Results.BadRequest("Username already exists");
+
+        var newUser = new AppUser
+        {
+            Username = user.Username,
+            PasswordHash = hasher.HashPassword(user.Password),
+            Email = $"{user.Username}@example.com",
+            Role = "User"
+        };
+
+        context.AppUsers.Add(newUser);
+        await context.SaveChangesAsync();
+
+        return Results.Ok("User registered successfully");
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem("Registration error: " + ex.Message);
+    }
+});
+
+app.MapPost("/api/auth/login", async (LoginUser user, AppDbContext context, PasswordHasher hasher, TokenService tokenService) =>
+{
+    try
+    {
+        var dbUser = await context.AppUsers.FirstOrDefaultAsync(u => u.Username == user.Username);
+        if (dbUser == null || !hasher.VerifyPassword(user.Password, dbUser.PasswordHash))
+            return Results.Unauthorized();
+
+        // Пока возвращаем простой ответ без токена
+        return Results.Ok(new { message = "Login successful", username = dbUser.Username });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem("Login error: " + ex.Message);
+    }
+});
+
+// User endpoints
 app.MapGet("/api/users", async (AppDbContext context) =>
 {
-    var users = await context.Users.ToListAsync();
-    return Results.Ok(users);
+    try
+    {
+        var users = await context.Users.ToListAsync();
+        return Results.Ok(users);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem("Database error: " + ex.Message);
+    }
 });
 
-// GET пользователь по ID
 app.MapGet("/api/users/{id}", async (int id, AppDbContext context) =>
 {
-    var user = await context.Users.FindAsync(id);
-    return user != null ? Results.Ok(user) : Results.NotFound($"User with ID {id} not found");
+    try
+    {
+        var user = await context.Users.FindAsync(id);
+        return user != null ? Results.Ok(user) : Results.NotFound($"User with ID {id} not found");
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem("Database error: " + ex.Message);
+    }
 });
 
-// POST - создание пользователя
 app.MapPost("/api/users", async (CreateUserDto userDto, AppDbContext context) =>
 {
-    var user = new User
+    try
     {
-        Name = userDto.Name,
-        Email = userDto.Email,
-        CreatedAt = DateTime.UtcNow
-    };
+        var user = new User
+        {
+            Name = userDto.Name,
+            Email = userDto.Email,
+            CreatedAt = DateTime.UtcNow
+        };
 
-    context.Users.Add(user);
-    await context.SaveChangesAsync();
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
 
-    return Results.Created($"/api/users/{user.Id}", user);
+        return Results.Created($"/api/users/{user.Id}", user);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem("Database error: " + ex.Message);
+    }
 });
 
-// PUT - обновление пользователя
 app.MapPut("/api/users/{id}", async (int id, UpdateUserDto userDto, AppDbContext context) =>
 {
-    var user = await context.Users.FindAsync(id);
-    if (user == null)
-        return Results.NotFound($"User with ID {id} not found");
+    try
+    {
+        var user = await context.Users.FindAsync(id);
+        if (user == null)
+            return Results.NotFound($"User with ID {id} not found");
 
+        user.Name = userDto.Name;
+        user.Email = userDto.Email;
 
-    user.Name = userDto.Name;
-    user.Email = userDto.Email;
-
-    await context.SaveChangesAsync();
-    return Results.Ok(user);
+        await context.SaveChangesAsync();
+        return Results.Ok(user);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem("Database error: " + ex.Message);
+    }
 });
 
-// DELETE - удаление пользователя
 app.MapDelete("/api/users/{id}", async (int id, AppDbContext context) =>
 {
-    var user = await context.Users.FindAsync(id);
-    if (user == null)
+    try
+    {
+        var user = await context.Users.FindAsync(id);
+        if (user == null)
+            return Results.NotFound($"User with ID {id} not found");
 
-  
-      return Results.NotFound($"User with ID {id} not found");
+        context.Users.Remove(user);
+        await context.SaveChangesAsync();
 
-    context.Users.Remove(user);
-    await context.SaveChangesAsync();
-
-
-    return Results.NoContent();
+        return Results.NoContent();
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem("Database error: " + ex.Message);
+    }
 });
 
-// Используем порт из переменной окружения или 8080 по умолчанию
+// Profile endpoint
+app.MapGet("/api/profile", () =>
+{
+    return Results.Ok(new { message = "Profile endpoint - add JWT later" });
+});
+
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 app.Run($"http://*:{port}");
