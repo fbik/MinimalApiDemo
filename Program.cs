@@ -1,17 +1,50 @@
+using MinimalApiDemo.Data;
 using MinimalApiDemo.Models;
+using MinimalApiDemo.DTOs;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Добавляем сервисы
+// Конфигурация
+builder.Configuration.AddEnvironmentVariables();
+
+// База данных
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Сервисы
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new() { Title = "My Minimal API", Version = "v1" });
-});
+builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Настройка Swagger
+// Миграции базы данных с повторными попытками
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    
+    var retries = 10;
+    while (retries > 0)
+    {
+        try
+        {
+            logger.LogInformation("Attempting to apply migrations...");
+            db.Database.Migrate();
+            logger.LogInformation("Migrations applied successfully");
+            break;
+        }
+        catch (Exception ex)
+        {
+            retries--;
+            logger.LogWarning(ex, "Migration failed, retries left: {Retries}", retries);
+            if (retries == 0) throw;
+            Thread.Sleep(5000);
+        }
+    }
+}
+
+// Swagger
 app.UseSwagger();
 app.UseSwaggerUI(c => 
 {
@@ -21,71 +54,70 @@ app.UseSwaggerUI(c =>
 
 app.UseHttpsRedirection();
 
-// In-memory хранилище
-var users = new List<User>
-{
-    new User { Id = 1, Name = "Irina", Email = "irina@example.com", CreatedAt = DateTime.UtcNow }
-};
+// Endpoints
+app.MapGet("/", () => "Hello World! Minimal API with PostgreSQL is working!");
 
-// Basic endpoint
-app.MapGet("/", () => "Hello World! Minimal API is working!");
 
-// Endpoint с параметром
 app.MapGet("/hello/{name}", (string name) => $"Hello {name}!");
 
 // GET все пользователи
-app.MapGet("/api/users", () => Results.Ok(users));
+app.MapGet("/api/users", async (AppDbContext context) =>
+{
+    var users = await context.Users.ToListAsync();
+    return Results.Ok(users);
+});
 
 // GET пользователь по ID
-app.MapGet("/api/users/{id}", (int id) =>
+app.MapGet("/api/users/{id}", async (int id, AppDbContext context) =>
 {
-    var user = users.FirstOrDefault(u => u.Id == id);
+    var user = await context.Users.FindAsync(id);
     return user != null ? Results.Ok(user) : Results.NotFound($"User with ID {id} not found");
 });
 
 // POST - создание пользователя
-app.MapPost("/api/users", (User user) =>
+app.MapPost("/api/users", async (CreateUserDto userDto, AppDbContext context) =>
 {
-    // Базовая валидация
-    if (string.IsNullOrEmpty(user.Name) || string.IsNullOrEmpty(user.Email))
+    var user = new User
     {
-        return Results.BadRequest("Name and Email are required");
-    }
+        Name = userDto.Name,
+        Email = userDto.Email,
+        CreatedAt = DateTime.UtcNow
+    };
 
-    // Генерируем новый ID
-    user.Id = users.Count > 0 ? users.Max(u => u.Id) + 1 : 1;
-    user.CreatedAt = DateTime.UtcNow;
-    
-    users.Add(user);
+    context.Users.Add(user);
+    await context.SaveChangesAsync();
+
     return Results.Created($"/api/users/{user.Id}", user);
 });
 
 // PUT - обновление пользователя
-app.MapPut("/api/users/{id}", (int id, User updatedUser) =>
+app.MapPut("/api/users/{id}", async (int id, UpdateUserDto userDto, AppDbContext context) =>
 {
-    var existingUser = users.FirstOrDefault(u => u.Id == id);
-    if (existingUser == null)
-    {
+    var user = await context.Users.FindAsync(id);
+    if (user == null)
         return Results.NotFound($"User with ID {id} not found");
-    }
 
-    // Обновляем данные
-    existingUser.Name = updatedUser.Name;
-    existingUser.Email = updatedUser.Email;
-    
-    return Results.Ok(existingUser);
+
+    user.Name = userDto.Name;
+    user.Email = userDto.Email;
+
+    await context.SaveChangesAsync();
+    return Results.Ok(user);
 });
 
 // DELETE - удаление пользователя
-app.MapDelete("/api/users/{id}", (int id) =>
+app.MapDelete("/api/users/{id}", async (int id, AppDbContext context) =>
 {
-    var user = users.FirstOrDefault(u => u.Id == id);
+    var user = await context.Users.FindAsync(id);
     if (user == null)
-    {
-        return Results.NotFound($"User with ID {id} not found");
-    }
 
-    users.Remove(user);
+  
+      return Results.NotFound($"User with ID {id} not found");
+
+    context.Users.Remove(user);
+    await context.SaveChangesAsync();
+
+
     return Results.NoContent();
 });
 

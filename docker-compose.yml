@@ -1,15 +1,32 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: minimalapi
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    container_name: minimalapi-postgres
+
   minimalapi:
     build: .
     ports:
       - "8080:8080"
-      - "8081:8081"
+      
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://*:8080
-    volumes:
-      - ./appsettings.json:/app/appsettings.json
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=minimalapi;Username=postgres;Password=postgres123
+    depends_on:
+      - postgres
     restart: unless-stopped
     container_name: minimalapi-app
+
+volumes:
+  postgres_data:
