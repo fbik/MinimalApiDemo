@@ -16,10 +16,16 @@ app.UseSwagger();
 app.UseSwaggerUI(c => 
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "My API V1");
-    c.RoutePrefix = "swagger"; // Swagger будет доступен по /swagger
+    c.RoutePrefix = "swagger";
 });
 
 app.UseHttpsRedirection();
+
+// In-memory хранилище
+var users = new List<User>
+{
+    new User { Id = 1, Name = "Irina", Email = "irina@example.com", CreatedAt = DateTime.UtcNow }
+};
 
 // Basic endpoint
 app.MapGet("/", () => "Hello World! Minimal API is working!");
@@ -27,37 +33,17 @@ app.MapGet("/", () => "Hello World! Minimal API is working!");
 // Endpoint с параметром
 app.MapGet("/hello/{name}", (string name) => $"Hello {name}!");
 
-// Endpoint с JSON ответом - теперь используем нашу модель
-app.MapGet("/api/user", () => 
-{
-    var user = new User { Id = 1, Name = "John Doe", Email = "john@example.com", CreatedAt = DateTime.UtcNow };
-    return Results.Json(user);
-});
-
-// GET все пользователи (заглушка)
-app.MapGet("/api/users", () =>
-{
-    var users = new List<User>
-    {
-        new User { Id = 1, Name = "Irina", Email = "irina@example.com", CreatedAt = DateTime.UtcNow },
-        new User { Id = 2, Name = "Alex", Email = "alex@example.com", CreatedAt = DateTime.UtcNow.AddDays(-1) }
-    };
-    return Results.Ok(users);
-});
+// GET все пользователи
+app.MapGet("/api/users", () => Results.Ok(users));
 
 // GET пользователь по ID
 app.MapGet("/api/users/{id}", (int id) =>
 {
-    // Заглушка - в реальном приложении здесь поиск в БД
-    if (id == 1)
-    {
-        var user = new User { Id = 1, Name = "Irina", Email = "irina@example.com", CreatedAt = DateTime.UtcNow };
-        return Results.Ok(user);
-    }
-    return Results.NotFound($"User with ID {id} not found");
+    var user = users.FirstOrDefault(u => u.Id == id);
+    return user != null ? Results.Ok(user) : Results.NotFound($"User with ID {id} not found");
 });
 
-// POST - создание пользователя с валидацией
+// POST - создание пользователя
 app.MapPost("/api/users", (User user) =>
 {
     // Базовая валидация
@@ -66,38 +52,43 @@ app.MapPost("/api/users", (User user) =>
         return Results.BadRequest("Name and Email are required");
     }
 
-    // Здесь обычно сохраняем в базу данных
-    // Пока просто возвращаем созданного пользователя
-    user.Id = new Random().Next(10, 1000); // Генерируем ID
+    // Генерируем новый ID
+    user.Id = users.Count > 0 ? users.Max(u => u.Id) + 1 : 1;
     user.CreatedAt = DateTime.UtcNow;
     
+    users.Add(user);
     return Results.Created($"/api/users/{user.Id}", user);
 });
 
 // PUT - обновление пользователя
 app.MapPut("/api/users/{id}", (int id, User updatedUser) =>
 {
-    // Заглушка - в реальном приложении обновляем в БД
-    if (id != 1)
+    var existingUser = users.FirstOrDefault(u => u.Id == id);
+    if (existingUser == null)
     {
         return Results.NotFound($"User with ID {id} not found");
     }
 
-    updatedUser.Id = id;
-    return Results.Ok(updatedUser);
+    // Обновляем данные
+    existingUser.Name = updatedUser.Name;
+    existingUser.Email = updatedUser.Email;
+    
+    return Results.Ok(existingUser);
 });
 
 // DELETE - удаление пользователя
 app.MapDelete("/api/users/{id}", (int id) =>
 {
-    // Заглушка - в реальном приложении удаляем из БД
-    if (id != 1)
+    var user = users.FirstOrDefault(u => u.Id == id);
+    if (user == null)
     {
         return Results.NotFound($"User with ID {id} not found");
     }
 
+    users.Remove(user);
     return Results.NoContent();
 });
 
-app.Run();
-=
+// Используем порт из переменной окружения или 8080 по умолчанию
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+app.Run($"http://*:{port}");

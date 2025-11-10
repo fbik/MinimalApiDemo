@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  minimalapi:
+    build: .
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://*:8080
+    volumes:
+      - ./appsettings.json:/app/appsettings.json
+    restart: unless-stopped
+    container_name: minimalapi-app
