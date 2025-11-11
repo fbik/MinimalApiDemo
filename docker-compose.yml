@@ -23,9 +23,10 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://*:8080
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=minimalapi;Username=postgres;Password=postgres123
-      - Jwt__Key=your-super-secret-key-that-is-at-least-32-characters-long
+      - Jwt__Key=super-secret-key-minimum-32-characters-long-here
       - Jwt__Issuer=MinimalApiDemo
-      - Jwt__Audience=MinimalApiDemoUsers
+      - Jwt__Audience=MinimalApiUsers
+      - Jwt__ExpireHours=2
     depends_on:
       - postgres
     restart: unless-stopped

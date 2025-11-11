@@ -33,7 +33,7 @@ public class TokenService
             _configuration["Jwt:Issuer"],
             _configuration["Jwt:Audience"],
             claims,
-            expires: DateTime.Now.AddHours(2),
+            expires: DateTime.Now.AddHours(Convert.ToDouble(_configuration["Jwt:ExpireHours"])),
             signingCredentials: credentials);
 
         return new JwtSecurityTokenHandler().WriteToken(token);

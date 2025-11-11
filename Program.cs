@@ -3,6 +3,8 @@ using MinimalApiDemo.Models;
 using MinimalApiDemo.DTOs;
 using MinimalApiDemo.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
 
@@ -19,6 +21,25 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // Сервисы
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<PasswordHasher>();
+
+// JWT Аутентификация
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 // Сервисы
 builder.Services.AddEndpointsApiExplorer();
@@ -71,6 +92,10 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// Middleware
+app.UseAuthentication();
+app.UseAuthorization();
+
 // Swagger
 app.UseSwagger();
 app.UseSwaggerUI(c => 
@@ -122,8 +147,16 @@ app.MapPost("/api/auth/login", async (LoginUser user, AppDbContext context, Pass
         if (dbUser == null || !hasher.VerifyPassword(user.Password, dbUser.PasswordHash))
             return Results.Unauthorized();
 
-        // Пока возвращаем простой ответ без токена
-        return Results.Ok(new { message = "Login successful", username = dbUser.Username });
+        var token = tokenService.GenerateToken(dbUser);
+        var response = new AuthResponse
+        {
+            Token = token,
+            Expires = DateTime.Now.AddHours(2),
+            Username = dbUser.Username,
+            Role = dbUser.Role
+        };
+
+        return Results.Ok(response);
     }
     catch (Exception ex)
     {
@@ -131,7 +164,7 @@ app.MapPost("/api/auth/login", async (LoginUser user, AppDbContext context, Pass
     }
 });
 
-// User endpoints
+// Protected endpoints
 app.MapGet("/api/users", async (AppDbContext context) =>
 {
     try
@@ -143,7 +176,7 @@ app.MapGet("/api/users", async (AppDbContext context) =>
     {
         return Results.Problem("Database error: " + ex.Message);
     }
-});
+}).RequireAuthorization();
 
 app.MapGet("/api/users/{id}", async (int id, AppDbContext context) =>
 {
@@ -156,7 +189,7 @@ app.MapGet("/api/users/{id}", async (int id, AppDbContext context) =>
     {
         return Results.Problem("Database error: " + ex.Message);
     }
-});
+}).RequireAuthorization();
 
 app.MapPost("/api/users", async (CreateUserDto userDto, AppDbContext context) =>
 {
@@ -178,7 +211,7 @@ app.MapPost("/api/users", async (CreateUserDto userDto, AppDbContext context) =>
     {
         return Results.Problem("Database error: " + ex.Message);
     }
-});
+}).RequireAuthorization();
 
 app.MapPut("/api/users/{id}", async (int id, UpdateUserDto userDto, AppDbContext context) =>
 {
@@ -198,7 +231,7 @@ app.MapPut("/api/users/{id}", async (int id, UpdateUserDto userDto, AppDbContext
     {
         return Results.Problem("Database error: " + ex.Message);
     }
-});
+}).RequireAuthorization();
 
 app.MapDelete("/api/users/{id}", async (int id, AppDbContext context) =>
 {
@@ -217,13 +250,24 @@ app.MapDelete("/api/users/{id}", async (int id, AppDbContext context) =>
     {
         return Results.Problem("Database error: " + ex.Message);
     }
-});
+}).RequireAuthorization();
 
-// Profile endpoint
-app.MapGet("/api/profile", () =>
+// Profile endpoint - показывает данные из JWT токена
+app.MapGet("/api/profile", (ClaimsPrincipal user) =>
 {
-    return Results.Ok(new { message = "Profile endpoint - add JWT later" });
-});
+    var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    var username = user.FindFirst(ClaimTypes.Name)?.Value;
+    var email = user.FindFirst(ClaimTypes.Email)?.Value;
+    var role = user.FindFirst(ClaimTypes.Role)?.Value;
+
+    return Results.Ok(new { 
+        userId, 
+        username, 
+        email, 
+        role,
+        message = "This data comes from your JWT token!" 
+    });
+}).RequireAuthorization();
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 app.Run($"http://*:{port}");
