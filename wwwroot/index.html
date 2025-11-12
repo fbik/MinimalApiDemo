@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimal API Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+        }
+
+        .section h2 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .tab {
+            padding: 12px 25px;
+            cursor: pointer;
+            background: #f8f9fa;
+            border: none;
+            margin-right: 5px;
+            border-radius: 8px 8px 0 0;
+            transition: background 0.3s;
+        }
+
+        .tab.active {
+            background: #3498db;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .user-item {
+            padding: 10px;
+            border: 1px solid #ddd;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Minimal API Demo</h1>
+            <p>Frontend для вашего ASP.NET Core API</p>
+        </div>
+
+        <div class="content">
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('auth')">🔐 Аутентификация</button>
+                <button class="tab" onclick="showTab('users')">👥 Пользователи</button>
+                <button class="tab" onclick="showTab('profile')">👤 Профиль</button>
+            </div>
+
+            <!-- Вкладка Аутентификация -->
+            <div id="auth" class="tab-content active">
+                <div class="section">
+                    <h2>📝 Регистрация</h2>
+                    <div class="form-group">
+                        <label for="regUsername">Имя пользователя:</label>
+                        <input type="text" id="regUsername" placeholder="Введите имя пользователя">
+                    </div>
+                    <div class="form-group">
+                        <label for="regPassword">Пароль:</label>
+                        <input type="password" id="regPassword" placeholder="Введите пароль">
+                    </div>
+                    <button onclick="register()">Зарегистрироваться</button>
+                    <div id="registerResult" class="result hidden"></div>
+                </div>
+
+                <div class="section">
+                    <h2>🔑 Вход в систему</h2>
+                    <div class="form-group">
+                        <label for="loginUsername">Имя пользователя:</label>
+                        <input type="text" id="loginUsername" placeholder="admin">
+                    </div>
+                    <div class="form-group">
+                        <label for="loginPassword">Пароль:</label>
+                        <input type="password" id="loginPassword" placeholder="admin123">
+                    </div>
+                    <button onclick="login()">Войти</button>
+                    <div id="loginResult" class="result hidden"></div>
+                </div>
+            </div>
+
+            <!-- Вкладка Пользователи -->
+            <div id="users" class="tab-content">
+                <div class="section">
+                    <h2>👥 Управление пользователями</h2>
+                    <button onclick="getUsers()">Получить всех пользователей</button>
+                    <div id="usersResult" class="result hidden"></div>
+                </div>
+
+                <div class="section">
+                    <h2>➕ Создать пользователя</h2>
+                    <div class="form-group">
+                        <label for="userName">Имя:</label>
+                        <input type="text" id="userName" placeholder="Введите имя">
+                    </div>
+                    <div class="form-group">
+                        <label for="userEmail">Email:</label>
+                        <input type="email" id="userEmail" placeholder="Введите email">
+                    </div>
+                    <button onclick="createUser()">Создать пользователя</button>
+                    <div id="createUserResult" class="result hidden"></div>
+                </div>
+            </div>
+
+            <!-- Вкладка Профиль -->
+            <div id="profile" class="tab-content">
+                <div class="section">
+                    <h2>👤 Профиль пользователя</h2>
+                    <button onclick="getProfile()">Получить профиль</button>
+                    <div id="profileResult" class="result hidden"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8080/api';
+        let currentToken = localStorage.getItem('jwtToken');
+
+        // Управление вкладками
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tabName).classList.add('active');
+        }
+
+        // Показать/скрыть результат
+        function showResult(elementId, message, isError = false) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.classList.remove('hidden');
+            element.style.borderLeftColor = isError ? '#e74c3c' : '#27ae60';
+        }
+
+        // Регистрация
+        async function register() {
+            const username = document.getElementById('regUsername').value;
+            const password = document.getElementById('regPassword').value;
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const result = await response.text();
+                showResult('registerResult', result, !response.ok);
+            } catch (error) {
+                showResult('registerResult', 'Ошибка: ' + error.message, true);
+            }
+        }
+
+        // Логин
+        async function login() {
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    currentToken = data.token;
+                    localStorage.setItem('jwtToken', data.token);
+                    showResult('loginResult', 
+                        `✅ Успешный вход!\nТокен сохранен.\n\nДанные:\n${JSON.stringify(data, null, 2)}`);
+                } else {
+                    showResult('loginResult', '❌ Ошибка входа: неверные данные', true);
+                }
+            } catch (error) {
+                showResult('loginResult', 'Ошибка: ' + error.message, true);
+            }
+        }
+
+        // Получить пользователей
+        async function getUsers() {
+            if (!currentToken) {
+                showResult('usersResult', '❌ Сначала выполните вход!', true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/users`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const users = await response.json();
+                    showResult('usersResult', `Найдено пользователей: ${users.length}\n\n${JSON.stringify(users, null, 2)}`);
+                } else {
+                    showResult('usersResult', '❌ Ошибка доступа', true);
+                }
+            } catch (error) {
+                showResult('usersResult', 'Ошибка: ' + error.message, true);
+            }
+        }
+
+        // Создать пользователя
+        async function createUser() {
+            if (!currentToken) {
+                showResult('createUserResult', '❌ Сначала выполните вход!', true);
+                return;
+            }
+
+            const name = document.getElementById('userName').value;
+            const email = document.getElementById('userEmail').value;
+
+            try {
+                const response = await fetch(`${API_BASE}/users`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({ name, email })
+                });
+
+                if (response.ok) {
+                    const user = await response.json();
+                    showResult('createUserResult', `✅ Пользователь создан!\n\n${JSON.stringify(user, null, 2)}`);
+                } else {
+                    const error = await response.text();
+                    showResult('createUserResult', '❌ Ошибка: ' + error, true);
+                }
+            } catch (error) {
+                showResult('createUserResult', 'Ошибка: ' + error.message, true);
+            }
+        }
+
+        // Получить профиль
+        async function getProfile() {
+            if (!currentToken) {
+                showResult('profileResult', '❌ Сначала выполните вход!', true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/profile`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const profile = await response.json();
+                    showResult('profileResult', `👤 Данные профиля:\n\n${JSON.stringify(profile, null, 2)}`);
+                } else {
+                    showResult('profileResult', '❌ Ошибка доступа', true);
+                }
+            } catch (error) {
+                showResult('profileResult', 'Ошибка: ' + error.message, true);
+            }
+        }
+
+        // Автоматически заполнить тестовые данные
+        document.getElementById('loginUsername').value = 'admin';
+        document.getElementById('loginPassword').value = 'admin123';
+    </script>
+</body>
+</html>

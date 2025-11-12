@@ -41,11 +41,33 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// Сервисы
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+
+// СТАТИЧЕСКИЕ ФАЙЛЫ - ЯВНО УКАЗЫВАЕМ ПУТЬ
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(Directory.GetCurrentDirectory(), "wwwroot")),
+    RequestPath = ""
+});
+
+// Затем аутентификация
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Swagger
+app.UseSwagger();
+app.UseSwaggerUI(c => 
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "My API V1");
+    c.RoutePrefix = "swagger";
+});
+
+app.UseHttpsRedirection();
 
 // Миграции базы данных
 using (var scope = app.Services.CreateScope())
@@ -63,7 +85,7 @@ using (var scope = app.Services.CreateScope())
             logger.LogInformation("Database connected, applying migrations...");
             await db.Database.MigrateAsync();
             
-            // Создаем тестового пользователя если нет пользователей
+
             if (!await db.AppUsers.AnyAsync())
             {
                 var hasher = scope.ServiceProvider.GetRequiredService<PasswordHasher>();
@@ -92,31 +114,18 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// Middleware
-app.UseAuthentication();
-app.UseAuthorization();
+// ГЛАВНАЯ СТРАНИЦА - редирект на index.html
+app.MapGet("/", () => Results.Redirect("/index.html"));
 
-// Swagger
-app.UseSwagger();
-app.UseSwaggerUI(c => 
-{
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "My API V1");
-    c.RoutePrefix = "swagger";
-});
-
-app.UseHttpsRedirection();
-
-// Public endpoints
-app.MapGet("/", () => "Hello World! Minimal API with JWT Auth is working!");
-
+// Все остальные endpoints...
 app.MapGet("/hello/{name}", (string name) => $"Hello {name}!");
 
-// Auth endpoints
+
 app.MapPost("/api/auth/register", async (LoginUser user, AppDbContext context, PasswordHasher hasher) =>
 {
     try
     {
-        // Проверяем существует ли пользователь
+
         if (await context.AppUsers.AnyAsync(u => u.Username == user.Username))
             return Results.BadRequest("Username already exists");
 
@@ -164,7 +173,7 @@ app.MapPost("/api/auth/login", async (LoginUser user, AppDbContext context, Pass
     }
 });
 
-// Protected endpoints
+
 app.MapGet("/api/users", async (AppDbContext context) =>
 {
     try
@@ -252,7 +261,7 @@ app.MapDelete("/api/users/{id}", async (int id, AppDbContext context) =>
     }
 }).RequireAuthorization();
 
-// Profile endpoint - показывает данные из JWT токена
+
 app.MapGet("/api/profile", (ClaimsPrincipal user) =>
 {
     var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
