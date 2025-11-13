@@ -2,11 +2,13 @@ using MinimalApiDemo.Data;
 using MinimalApiDemo.Models;
 using MinimalApiDemo.DTOs;
 using MinimalApiDemo.Services;
+using MinimalApiDemo.Validators;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
+using FluentValidation;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +23,23 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // Сервисы
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<PasswordHasher>();
+
+// Валидаторы
+builder.Services.AddScoped<IValidator<LoginUser>, LoginUserValidator>();
+builder.Services.AddScoped<IValidator<CreateUserDto>, CreateUserDtoValidator>();
+builder.Services.AddScoped<IValidator<UpdateUserDto>, UpdateUserDtoValidator>();
+
+// CORS - разрешаем запросы с фронтенда
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy.WithOrigins("http://localhost:8080")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
 
 // JWT Аутентификация
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -40,14 +59,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
-
-
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// СТАТИЧЕСКИЕ ФАЙЛЫ - ЯВНО УКАЗЫВАЕМ ПУТЬ
+// CORS - ДО любого другого middleware
+app.UseCors("AllowFrontend");
+
+// Статические файлы
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
@@ -85,7 +105,6 @@ using (var scope = app.Services.CreateScope())
             logger.LogInformation("Database connected, applying migrations...");
             await db.Database.MigrateAsync();
             
-
             if (!await db.AppUsers.AnyAsync())
             {
                 var hasher = scope.ServiceProvider.GetRequiredService<PasswordHasher>();
@@ -93,12 +112,12 @@ using (var scope = app.Services.CreateScope())
                 { 
                     Username = "admin", 
                     Email = "admin@example.com",
-                    PasswordHash = hasher.HashPassword("admin123"),
+                    PasswordHash = hasher.HashPassword("Admin123!"),
                     Role = "Admin"
                 };
                 db.AppUsers.Add(testUser);
                 await db.SaveChangesAsync();
-                logger.LogInformation("Test user created: admin/admin123");
+                logger.LogInformation("Test user created: admin/Admin123!");
             }
             
             logger.LogInformation("Migrations applied successfully");
@@ -114,18 +133,26 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// ГЛАВНАЯ СТРАНИЦА - редирект на index.html
+// Главная страница
 app.MapGet("/", () => Results.Redirect("/index.html"));
 
-// Все остальные endpoints...
+// Public endpoints
 app.MapGet("/hello/{name}", (string name) => $"Hello {name}!");
 
-
-app.MapPost("/api/auth/register", async (LoginUser user, AppDbContext context, PasswordHasher hasher) =>
+// Auth endpoints с валидацией
+app.MapPost("/api/auth/register", async (LoginUser user, AppDbContext context, PasswordHasher hasher, IValidator<LoginUser> validator) =>
 {
     try
     {
+        // Валидация
+        var validationResult = await validator.ValidateAsync(user);
+        if (!validationResult.IsValid)
+        {
+            var errors = string.Join(", ", validationResult.Errors.Select(e => e.ErrorMessage));
+            return Results.BadRequest(new { errors });
+        }
 
+        // Проверяем существует ли пользователь
         if (await context.AppUsers.AnyAsync(u => u.Username == user.Username))
             return Results.BadRequest("Username already exists");
 
@@ -148,10 +175,18 @@ app.MapPost("/api/auth/register", async (LoginUser user, AppDbContext context, P
     }
 });
 
-app.MapPost("/api/auth/login", async (LoginUser user, AppDbContext context, PasswordHasher hasher, TokenService tokenService) =>
+app.MapPost("/api/auth/login", async (LoginUser user, AppDbContext context, PasswordHasher hasher, TokenService tokenService, IValidator<LoginUser> validator) =>
 {
     try
     {
+        // Валидация
+        var validationResult = await validator.ValidateAsync(user);
+        if (!validationResult.IsValid)
+        {
+            var errors = string.Join(", ", validationResult.Errors.Select(e => e.ErrorMessage));
+            return Results.BadRequest(new { errors });
+        }
+
         var dbUser = await context.AppUsers.FirstOrDefaultAsync(u => u.Username == user.Username);
         if (dbUser == null || !hasher.VerifyPassword(user.Password, dbUser.PasswordHash))
             return Results.Unauthorized();
@@ -173,13 +208,20 @@ app.MapPost("/api/auth/login", async (LoginUser user, AppDbContext context, Pass
     }
 });
 
-
+// Protected endpoints с валидацией
 app.MapGet("/api/users", async (AppDbContext context) =>
 {
     try
     {
         var users = await context.Users.ToListAsync();
-        return Results.Ok(users);
+        var response = users.Select(u => new UserResponseDto
+        {
+            Id = u.Id,
+            Name = u.Name,
+            Email = u.Email,
+            CreatedAt = u.CreatedAt
+        });
+        return Results.Ok(response);
     }
     catch (Exception ex)
     {
@@ -192,7 +234,17 @@ app.MapGet("/api/users/{id}", async (int id, AppDbContext context) =>
     try
     {
         var user = await context.Users.FindAsync(id);
-        return user != null ? Results.Ok(user) : Results.NotFound($"User with ID {id} not found");
+        if (user == null)
+            return Results.NotFound($"User with ID {id} not found");
+
+        var response = new UserResponseDto
+        {
+            Id = user.Id,
+            Name = user.Name,
+            Email = user.Email,
+            CreatedAt = user.CreatedAt
+        };
+        return Results.Ok(response);
     }
     catch (Exception ex)
     {
@@ -200,10 +252,18 @@ app.MapGet("/api/users/{id}", async (int id, AppDbContext context) =>
     }
 }).RequireAuthorization();
 
-app.MapPost("/api/users", async (CreateUserDto userDto, AppDbContext context) =>
+app.MapPost("/api/users", async (CreateUserDto userDto, AppDbContext context, IValidator<CreateUserDto> validator) =>
 {
     try
     {
+        // Валидация
+        var validationResult = await validator.ValidateAsync(userDto);
+        if (!validationResult.IsValid)
+        {
+            var errors = string.Join(", ", validationResult.Errors.Select(e => e.ErrorMessage));
+            return Results.BadRequest(new { errors });
+        }
+
         var user = new User
         {
             Name = userDto.Name,
@@ -214,7 +274,15 @@ app.MapPost("/api/users", async (CreateUserDto userDto, AppDbContext context) =>
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
-        return Results.Created($"/api/users/{user.Id}", user);
+        var response = new UserResponseDto
+        {
+            Id = user.Id,
+            Name = user.Name,
+            Email = user.Email,
+            CreatedAt = user.CreatedAt
+        };
+
+        return Results.Created($"/api/users/{user.Id}", response);
     }
     catch (Exception ex)
     {
@@ -222,10 +290,18 @@ app.MapPost("/api/users", async (CreateUserDto userDto, AppDbContext context) =>
     }
 }).RequireAuthorization();
 
-app.MapPut("/api/users/{id}", async (int id, UpdateUserDto userDto, AppDbContext context) =>
+app.MapPut("/api/users/{id}", async (int id, UpdateUserDto userDto, AppDbContext context, IValidator<UpdateUserDto> validator) =>
 {
     try
     {
+        // Валидация
+        var validationResult = await validator.ValidateAsync(userDto);
+        if (!validationResult.IsValid)
+        {
+            var errors = string.Join(", ", validationResult.Errors.Select(e => e.ErrorMessage));
+            return Results.BadRequest(new { errors });
+        }
+
         var user = await context.Users.FindAsync(id);
         if (user == null)
             return Results.NotFound($"User with ID {id} not found");
@@ -234,7 +310,16 @@ app.MapPut("/api/users/{id}", async (int id, UpdateUserDto userDto, AppDbContext
         user.Email = userDto.Email;
 
         await context.SaveChangesAsync();
-        return Results.Ok(user);
+
+        var response = new UserResponseDto
+        {
+            Id = user.Id,
+            Name = user.Name,
+            Email = user.Email,
+            CreatedAt = user.CreatedAt
+        };
+
+        return Results.Ok(response);
     }
     catch (Exception ex)
     {
@@ -261,7 +346,7 @@ app.MapDelete("/api/users/{id}", async (int id, AppDbContext context) =>
     }
 }).RequireAuthorization();
 
-
+// Profile endpoint
 app.MapGet("/api/profile", (ClaimsPrincipal user) =>
 {
     var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;

@@ -187,7 +187,7 @@
                     </div>
                     <div class="form-group">
                         <label for="loginPassword">Пароль:</label>
-                        <input type="password" id="loginPassword" placeholder="admin123">
+                        <input type="password" id="loginPassword" placeholder="Admin123!">
                     </div>
                     <button onclick="login()">Войти</button>
                     <div id="loginResult" class="result hidden"></div>
@@ -229,7 +229,7 @@
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:8080/api';
+        const API_BASE = "/api";
         let currentToken = localStorage.getItem('jwtToken');
 
         // Управление вкладками
@@ -382,7 +382,7 @@
 
         // Автоматически заполнить тестовые данные
         document.getElementById('loginUsername').value = 'admin';
-        document.getElementById('loginPassword').value = 'admin123';
+        document.getElementById('loginPassword').value = 'Admin123!';
     </script>
 </body>
 </html>
